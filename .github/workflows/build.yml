@@ -10,6 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Susun file proyek
+        run: |
+          rsync -a --exclude 'build.yml' .github/workflows/ ./
+          find . -path ./.git -prune -o -type f -print | head -50
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
