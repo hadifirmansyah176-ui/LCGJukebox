@@ -21,8 +21,7 @@ jobs:
           cp "$(find $W -name AndroidManifest.xml | head -1)" app/src/main/AndroidManifest.xml
           cp "$(find $W -name activity_main.xml | head -1)" app/src/main/res/layout/activity_main.xml
           cp "$(find $W -name PlayerService.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/PlayerService.kt
-          cp "$(find $W -name MainActivity.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
-          find . -path ./.git -prune -o -path ./.github -prune -o -type f -print
+          cp $W/MainActivityBaru.kt app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
 
       - uses: actions/setup-java@v4
         with:
