@@ -12,8 +12,17 @@ jobs:
 
       - name: Susun file proyek
         run: |
-          rsync -a --exclude 'build.yml' .github/workflows/ ./
-          find . -path ./.git -prune -o -type f -print | head -50
+          W=.github/workflows
+          mkdir -p app/src/main/res/layout app/src/main/java/com/hadi/lcgjukebox
+          cp $W/settings.gradle.kts settings.gradle.kts
+          cp $W/build.gradle.kts build.gradle.kts
+          cp $W/gradle.properties gradle.properties
+          cp "$(find $W -name build.gradle.kts -path '*/app/*' | head -1)" app/build.gradle.kts
+          cp "$(find $W -name AndroidManifest.xml | head -1)" app/src/main/AndroidManifest.xml
+          cp "$(find $W -name activity_main.xml | head -1)" app/src/main/res/layout/activity_main.xml
+          cp "$(find $W -name PlayerService.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/PlayerService.kt
+          cp "$(find $W -name MainActivity.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
+          find . -path ./.git -prune -o -path ./.github -prune -o -type f -print
 
       - uses: actions/setup-java@v4
         with:
