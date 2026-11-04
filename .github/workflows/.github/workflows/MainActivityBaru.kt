@@ -3,6 +3,7 @@ package com.hadi.lcgjukebox
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
@@ -16,8 +17,11 @@ import android.media.AudioManager
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.*
+import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -30,6 +34,9 @@ private val NAVY = 0xFF1B2A6B.toInt()
 private val PANEL = 0xFFE6EBFC.toInt()
 private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
 private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+private val AUDIO_EXT = setOf("mp3", "m4a", "aac", "wav", "ogg", "flac", "wma", "opus", "amr")
+private const val REQ_FILES = 11
+private const val REQ_DIR = 12
 
 class VolumeView(context: Context, private val onLevel: (Int) -> Unit) : View(context) {
     var level = 0
@@ -97,8 +104,12 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var dragging = false
     private var shownIndex = -2
+    private var metaIndex = -1
+    private var metaArtist = ""
+    private var metaTitle = ""
 
     private val audio by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    private val prefs by lazy { getSharedPreferences("jukebox", Context.MODE_PRIVATE) }
 
     private lateinit var tvTime: TextView
     private lateinit var tvArtist: TextView
@@ -325,14 +336,21 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    // ---------- Menu ----------
+
     private fun showMenu(anchor: View) {
         val pm = PopupMenu(this, anchor)
         pm.menu.add(0, 1, 0, "Daftar lagu")
-        pm.menu.add(0, 2, 1, "Muat ulang lagu")
+        pm.menu.add(0, 2, 1, "Tambah lagu / folder")
+        pm.menu.add(0, 3, 2, "Semua lagu di HP")
         pm.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showPlaylist()
-                2 -> ensurePermission()
+                2 -> showAddDialog()
+                3 -> {
+                    saveSources(emptySet())
+                    loadTracks(fresh = true, show = true)
+                }
             }
             true
         }
@@ -344,12 +362,88 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Tidak ada lagu", Toast.LENGTH_SHORT).show()
             return
         }
-        val names = tracks.map { "${it.title} — ${it.artist}" }.toTypedArray()
+        val names = tracks.map { t ->
+            if (t.artist == "Tidak diketahui" || t.artist.isEmpty()) t.title
+            else "${t.title} — ${t.artist}"
+        }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Daftar lagu")
+            .setTitle("Daftar lagu (${tracks.size})")
             .setItems(names) { _, which -> service?.play(which) }
             .show()
     }
+
+    private fun showAddDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Tambah lagu / folder")
+            .setItems(arrayOf("Pilih lagu (file)", "Pilih folder")) { _, which ->
+                if (which == 0) pickFiles() else pickFolder()
+            }
+            .show()
+    }
+
+    private fun pickFiles() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        launchPicker(i, REQ_FILES)
+    }
+
+    private fun pickFolder() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        launchPicker(i, REQ_DIR)
+    }
+
+    private fun launchPicker(i: Intent, code: Int) {
+        try {
+            startActivityForResult(i, code)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "Aplikasi pemilih file tidak ditemukan", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK || data == null) return
+        val added = mutableSetOf<String>()
+        if (requestCode == REQ_DIR) {
+            val u = data.data ?: return
+            keepAccess(u)
+            added.add("D|$u")
+        } else if (requestCode == REQ_FILES) {
+            val uris = mutableListOf<Uri>()
+            val cd = data.clipData
+            if (cd != null) {
+                for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri)
+            }
+            val single = data.data
+            if (single != null && !uris.contains(single)) uris.add(single)
+            for (u in uris) {
+                keepAccess(u)
+                added.add("F|$u")
+            }
+        } else {
+            return
+        }
+        if (added.isEmpty()) return
+        val all = HashSet(sources())
+        all.addAll(added)
+        saveSources(all)
+        loadTracks(fresh = true, show = true)
+    }
+
+    private fun keepAccess(u: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+        }
+    }
+
+    // ---------- Volume ----------
 
     private fun setVolume(level: Int) {
         try {
@@ -368,6 +462,8 @@ class MainActivity : Activity() {
             tvVol.text = Math.round(cur * 100f / max).toString()
         }
     }
+
+    // ---------- Izin & daftar lagu ----------
 
     private fun audioPermission(): String =
         if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
@@ -388,14 +484,22 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
         super.onRequestPermissionsResult(code, perms, res)
-        if (res.isNotEmpty() && res[0] == PackageManager.PERMISSION_GRANTED) {
-            loadTracks()
-        } else {
-            Toast.makeText(this, "Izin membaca musik diperlukan", Toast.LENGTH_LONG).show()
+        if (res.isEmpty() || res[0] != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Tanpa izin, gunakan Menu → Tambah lagu / folder", Toast.LENGTH_LONG).show()
         }
+        loadTracks()
     }
 
-    private fun loadTracks() {
+    private fun sources(): Set<String> = prefs.getStringSet("sources", null) ?: emptySet()
+
+    private fun saveSources(s: Set<String>) {
+        prefs.edit().putStringSet("sources", HashSet(s)).apply()
+    }
+
+    private fun isAudio(name: String, mime: String): Boolean =
+        mime.startsWith("audio/") || name.substringAfterLast('.', "").lowercase() in AUDIO_EXT
+
+    private fun queryMediaStore(): List<Track> {
         val base = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -403,29 +507,119 @@ class MainActivity : Activity() {
             MediaStore.Audio.Media.ARTIST
         )
         val result = mutableListOf<Track>()
+        try {
+            contentResolver.query(
+                base, projection,
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
+                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE"
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val artist = c.getString(2)
+                    result.add(
+                        Track(
+                            ContentUris.withAppendedId(base, c.getLong(0)),
+                            c.getString(1) ?: "Tanpa judul",
+                            if (artist == null || artist == "<unknown>") "Tidak diketahui" else artist
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return result
+    }
+
+    private fun nameOf(uri: Uri): String {
+        var n = ""
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) n = c.getString(0) ?: ""
+            }
+        } catch (e: Exception) {
+        }
+        return n
+    }
+
+    private fun collectTree(tree: Uri, docId: String, out: MutableList<Track>) {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+        val subdirs = mutableListOf<String>()
         contentResolver.query(
-            base, projection,
-            "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
-            "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE"
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null, null, null
         )?.use { c ->
             while (c.moveToNext()) {
-                val artist = c.getString(2)
-                result.add(
-                    Track(
-                        ContentUris.withAppendedId(base, c.getLong(0)),
-                        c.getString(1) ?: "Tanpa judul",
-                        if (artist == null || artist == "<unknown>") "Artis tidak diketahui" else artist
+                val id = c.getString(0)
+                val name = c.getString(1) ?: ""
+                val mime = c.getString(2) ?: ""
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    subdirs.add(id)
+                } else if (isAudio(name, mime)) {
+                    out.add(
+                        Track(
+                            DocumentsContract.buildDocumentUriUsingTree(tree, id),
+                            name.substringBeforeLast('.'),
+                            "Tidak diketahui"
+                        )
                     )
-                )
+                }
             }
         }
-        tracks = result
-        service?.tracks = tracks
-        if (tracks.isEmpty()) {
-            Toast.makeText(this, "Tidak ada lagu ditemukan", Toast.LENGTH_LONG).show()
-        }
-        refreshUi()
+        for (d in subdirs) collectTree(tree, d, out)
     }
+
+    private fun buildTracks(): List<Track> {
+        val src = sources()
+        if (src.isEmpty()) return queryMediaStore()
+        val out = mutableListOf<Track>()
+        for (s in src) {
+            val uri = Uri.parse(s.substring(2))
+            try {
+                if (s.startsWith("D|")) {
+                    collectTree(uri, DocumentsContract.getTreeDocumentId(uri), out)
+                } else {
+                    val title = nameOf(uri).substringBeforeLast('.').ifEmpty { "Lagu" }
+                    out.add(Track(uri, title, "Tidak diketahui"))
+                }
+            } catch (e: Exception) {
+            }
+        }
+        return out.distinctBy { it.uri.toString() }.sortedBy { it.title.lowercase() }
+    }
+
+    private fun loadTracks(fresh: Boolean = false, show: Boolean = false) {
+        Toast.makeText(this, "Memuat daftar lagu…", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result: List<Track> = try {
+                buildTracks()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            runOnUiThread {
+                tracks = result
+                val s = service
+                if (s != null) {
+                    s.tracks = result
+                    if (fresh) {
+                        shownIndex = -2
+                        if (s.index >= 0 && result.isNotEmpty()) s.play(0)
+                    }
+                }
+                if (result.isEmpty()) {
+                    Toast.makeText(this, "Tidak ada lagu ditemukan", Toast.LENGTH_LONG).show()
+                } else if (show) {
+                    showPlaylist()
+                }
+                refreshUi()
+            }
+        }.start()
+    }
+
+    // ---------- Info lagu ----------
 
     private fun decode(data: ByteArray): Bitmap? {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -445,6 +639,8 @@ class MainActivity : Activity() {
             var bmp: Bitmap? = null
             var kbps = ""
             var khz = ""
+            var mArtist = ""
+            var mTitle = ""
             try {
                 val r = MediaMetadataRetriever()
                 r.setDataSource(ctx, t.uri)
@@ -452,6 +648,8 @@ class MainActivity : Activity() {
                 if (pic != null) bmp = decode(pic)
                 val br = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()
                 if (br != null) kbps = "${br / 1000}kbps"
+                mArtist = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: ""
+                mTitle = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: ""
                 r.release()
             } catch (e: Exception) {
             }
@@ -472,6 +670,10 @@ class MainActivity : Activity() {
                 if (shownIndex == index) {
                     art.setImageBitmap(bmp)
                     tvBitrate.text = text
+                    metaIndex = index
+                    metaArtist = mArtist
+                    metaTitle = mTitle
+                    refreshUi()
                 }
             }
         }.start()
@@ -486,13 +688,15 @@ class MainActivity : Activity() {
         val s = service ?: return
         val t = s.currentTrack
         val n = s.tracks.size
-        tvTitle.text = t?.title ?: "-"
-        tvArtist.text = t?.artist ?: "-"
+        val hasMeta = t != null && metaIndex == s.index
+        tvTitle.text = if (hasMeta && metaTitle.isNotEmpty()) metaTitle else (t?.title ?: "-")
+        tvArtist.text = if (hasMeta && metaArtist.isNotEmpty()) metaArtist
+        else if (t == null || t.artist == "Tidak diketahui") "-" else t.artist
         btnPlay.text = if (s.isPlaying) "❚❚" else "▶"
         tvTrackNo.text = "Track: ${if (t != null) s.index + 1 else 0}/$n"
         tvNext.text = if (t != null && n > 0) {
             val nx = s.tracks[(s.index + 1) % n]
-            "${nx.title} / ${nx.artist}"
+            nx.title
         } else "-"
         if (t != null && s.index != shownIndex) {
             shownIndex = s.index
