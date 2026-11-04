@@ -13,6 +13,7 @@ jobs:
       - name: Susun file proyek
         run: |
           W=.github/workflows
+          find .github -type f
           mkdir -p app/src/main/res/layout app/src/main/java/com/hadi/lcgjukebox
           cp $W/settings.gradle.kts settings.gradle.kts
           cp $W/build.gradle.kts build.gradle.kts
@@ -21,7 +22,7 @@ jobs:
           cp "$(find $W -name AndroidManifest.xml | head -1)" app/src/main/AndroidManifest.xml
           cp "$(find $W -name activity_main.xml | head -1)" app/src/main/res/layout/activity_main.xml
           cp "$(find $W -name PlayerService.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/PlayerService.kt
-          cp $W/MainActivityBaru.kt app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
+          cp "$(find $W -name MainActivityBaru.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
 
       - uses: actions/setup-java@v4
         with:
