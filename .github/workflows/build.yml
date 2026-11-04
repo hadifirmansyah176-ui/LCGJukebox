@@ -13,7 +13,6 @@ jobs:
       - name: Susun file proyek
         run: |
           W=.github/workflows
-          find .github -type f
           mkdir -p app/src/main/res/layout app/src/main/java/com/hadi/lcgjukebox
           cp $W/settings.gradle.kts settings.gradle.kts
           cp $W/build.gradle.kts build.gradle.kts
@@ -23,6 +22,29 @@ jobs:
           cp "$(find $W -name activity_main.xml | head -1)" app/src/main/res/layout/activity_main.xml
           cp "$(find $W -name PlayerService.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/PlayerService.kt
           cp "$(find $W -name MainActivityBaru.kt | head -1)" app/src/main/java/com/hadi/lcgjukebox/MainActivity.kt
+
+      - name: Buat ikon aplikasi
+        run: |
+          ICON=$(find . -name 'download.jpg' -not -path './.git/*' | head -1)
+          if [ -z "$ICON" ]; then echo "download.jpg tidak ada, ikon bawaan dipakai"; exit 0; fi
+          (pip install pillow || pip install --break-system-packages pillow)
+          ICON="$ICON" python3 - <<'PY'
+          import os
+          from PIL import Image, ImageDraw
+          src = Image.open(os.environ["ICON"]).convert("RGBA")
+          w, h = src.size
+          s = min(w, h)
+          l, t = (w - s) // 2, (h - s) // 2
+          src = src.crop((l, t, l + s, t + s))
+          for d, px in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+              im = src.resize((px, px), Image.LANCZOS)
+              mask = Image.new("L", (px, px), 0)
+              ImageDraw.Draw(mask).rounded_rectangle((0, 0, px - 1, px - 1), radius=px // 5, fill=255)
+              im.putalpha(mask)
+              os.makedirs(f"app/src/main/res/mipmap-{d}", exist_ok=True)
+              im.save(f"app/src/main/res/mipmap-{d}/ic_launcher.png")
+          PY
+          sed -i 's#@android:drawable/ic_media_play#@mipmap/ic_launcher#' app/src/main/AndroidManifest.xml
 
       - uses: actions/setup-java@v4
         with:
