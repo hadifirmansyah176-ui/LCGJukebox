@@ -357,12 +357,14 @@ class MainActivity : Activity() {
             setBackgroundColor(NAVY)
         }
         fun key(text: String, onClick: (View) -> Unit): TextView =
-            label(text, 16f, bold = true, color = Color.WHITE).apply {
+            label(text, 32f, bold = true, color = Color.WHITE).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, px(12), 0, px(12))
+                ellipsize = null
+                paint.isFakeBoldText = true
+                setPadding(0, px(14), 0, px(14))
                 setOnClickListener { onClick(it) }
             }
-        bar.addView(key("Menu") { v -> showMenu(v) }, lp(0, WRAP, 1f))
+        bar.addView(key("Menu") { v -> showMenu(v) }, lp(0, WRAP, 1.7f))
         bar.addView(key("|◀") { service?.prev() }, lp(0, WRAP, 1f))
         btnPlay = key("▶") { service?.toggle() }
         bar.addView(btnPlay, lp(0, WRAP, 1f))
@@ -370,7 +372,7 @@ class MainActivity : Activity() {
         bar.addView(key("Exit") {
             stopService(Intent(this, PlayerService::class.java))
             finish()
-        }, lp(0, WRAP, 1f))
+        }, lp(0, WRAP, 1.4f))
         root.addView(bar, lp(MATCH, WRAP))
 
         return root
@@ -411,19 +413,45 @@ class MainActivity : Activity() {
         val pm = PopupMenu(this, anchor)
         pm.menu.add(0, 1, 0, "Tambah lagu / folder")
         pm.menu.add(0, 2, 1, "Semua lagu di HP")
-        pm.menu.add(0, 3, 2, "Tentang")
+        pm.menu.add(0, 3, 2, "Hapus daftar lagu")
+        pm.menu.add(0, 4, 3, "Tentang")
         pm.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showAddDialog()
                 2 -> {
                     saveSources(emptySet())
+                    prefs.edit().putBoolean("cleared", false).apply()
                     loadTracks(fresh = true)
                 }
-                3 -> showAbout()
+                3 -> confirmClear()
+                4 -> showAbout()
             }
             true
         }
         pm.show()
+    }
+
+    private fun confirmClear() {
+        AlertDialog.Builder(this)
+            .setTitle("Hapus daftar lagu")
+            .setMessage("Semua lagu di daftar beranda akan dihapus. File lagu di HP tidak ikut terhapus.")
+            .setPositiveButton("Hapus") { _, _ -> clearList() }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun clearList() {
+        saveSources(emptySet())
+        prefs.edit().putBoolean("cleared", true).apply()
+        tracks = emptyList()
+        service?.clearAll()
+        shownIndex = -2
+        listIndex = -2
+        metaIndex = -1
+        art.setImageDrawable(null)
+        tvBitrate.text = ""
+        refreshList()
+        refreshUi()
     }
 
     private fun showAbout() {
@@ -510,6 +538,7 @@ class MainActivity : Activity() {
         val all = HashSet(sources())
         all.addAll(added)
         saveSources(all)
+        prefs.edit().putBoolean("cleared", false).apply()
         loadTracks(fresh = true)
     }
 
@@ -651,6 +680,7 @@ class MainActivity : Activity() {
 
     private fun buildTracks(): List<Track> {
         val src = sources()
+        if (src.isEmpty() && prefs.getBoolean("cleared", false)) return emptyList()
         if (src.isEmpty()) return queryMediaStore()
         val out = mutableListOf<Track>()
         for (s in src) {
@@ -687,7 +717,10 @@ class MainActivity : Activity() {
                     }
                 }
                 if (result.isEmpty()) {
-                    Toast.makeText(this, "Tidak ada lagu ditemukan", Toast.LENGTH_LONG).show()
+                    val msg = if (prefs.getBoolean("cleared", false))
+                        "Daftar kosong. Pakai Menu → Tambah lagu / folder"
+                    else "Tidak ada lagu ditemukan"
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
                 }
                 listIndex = -2
                 refreshList()

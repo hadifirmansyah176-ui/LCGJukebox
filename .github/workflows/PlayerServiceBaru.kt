@@ -101,6 +101,16 @@ class PlayerService : Service() {
         onChange?.invoke()
     }
 
+    @Suppress("DEPRECATION")
+    fun clearAll() {
+        player?.release()
+        player = null
+        index = -1
+        tracks = emptyList()
+        try { stopForeground(true) } catch (e: Exception) { }
+        onChange?.invoke()
+    }
+
     /** Indeks lagu berikutnya (acak bila mode ACAK aktif). */
     fun nextIndex(): Int {
         val n = tracks.size
