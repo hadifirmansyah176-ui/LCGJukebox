@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.MediaPlayer
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -26,6 +27,7 @@ class PlayerService : Service() {
     private var player: MediaPlayer? = null
     private val history = ArrayList<Int>()
     private var randomNext = -1
+    private var enhancer: LoudnessEnhancer? = null
 
     var tracks: List<Track> = emptyList()
         set(v) {
@@ -40,6 +42,12 @@ class PlayerService : Service() {
             field = v
             history.clear()
             randomNext = -1
+            onChange?.invoke()
+        }
+    var boost = false
+        set(v) {
+            field = v
+            applyBoost()
             onChange?.invoke()
         }
     var onChange: (() -> Unit)? = null
@@ -67,6 +75,7 @@ class PlayerService : Service() {
         val track = tracks.getOrNull(i) ?: return
         index = i
         randomNext = -1
+        releaseEnhancer()
         player?.release()
         player = null
         val mp = MediaPlayer()
@@ -75,6 +84,7 @@ class PlayerService : Service() {
             mp.setOnCompletionListener { next() }
             mp.setOnErrorListener { _, _, _ -> true }
             mp.prepare()
+            attachEnhancer(mp)
             mp.start()
             player = mp
             goForeground()
@@ -103,6 +113,7 @@ class PlayerService : Service() {
 
     @Suppress("DEPRECATION")
     fun clearAll() {
+        releaseEnhancer()
         player?.release()
         player = null
         index = -1
@@ -145,6 +156,30 @@ class PlayerService : Service() {
         play(if (index <= 0) tracks.size - 1 else index - 1)
     }
 
+    /** Penguat suara: ON = tambahan sekitar 12 dB di atas volume HP. */
+    private fun attachEnhancer(mp: MediaPlayer) {
+        try {
+            enhancer = LoudnessEnhancer(mp.audioSessionId)
+            applyBoost()
+        } catch (e: Exception) {
+            enhancer = null
+        }
+    }
+
+    private fun applyBoost() {
+        try {
+            val e = enhancer ?: return
+            e.setTargetGain(if (boost) 1200 else 0)
+            e.setEnabled(boost)
+        } catch (ex: Exception) {
+        }
+    }
+
+    private fun releaseEnhancer() {
+        try { enhancer?.release() } catch (e: Exception) { }
+        enhancer = null
+    }
+
     fun seekTo(ms: Int) {
         try { player?.seekTo(ms) } catch (e: IllegalStateException) { }
     }
@@ -179,6 +214,7 @@ class PlayerService : Service() {
     }
 
     override fun onDestroy() {
+        releaseEnhancer()
         player?.release()
         player = null
         super.onDestroy()

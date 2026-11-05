@@ -207,6 +207,8 @@ class MainActivity : Activity() {
     private lateinit var btnPlay: TextView
     private lateinit var btnShuffle: TextView
     private lateinit var dotShuffle: View
+    private lateinit var btnBoost: TextView
+    private lateinit var dotBoost: View
     private lateinit var tvCount: TextView
     private lateinit var list: ListView
     private val adapter = TrackAdapter()
@@ -227,6 +229,8 @@ class MainActivity : Activity() {
             if (tracks.isNotEmpty()) s.tracks = tracks
             val wantShuffle = prefs.getBoolean("shuffle", false)
             if (s.shuffle != wantShuffle) s.shuffle = wantShuffle
+            val wantBoost = prefs.getBoolean("boost", false)
+            if (s.boost != wantBoost) s.boost = wantBoost
             shownIndex = -2
             refreshUi()
         }
@@ -337,7 +341,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        tvVol = label("0", 20f, bold = true).apply { gravity = Gravity.CENTER }
+        tvVol = label("0", 16f, bold = true).apply { gravity = Gravity.CENTER }
         volCol.addView(tvVol, lp(WRAP, WRAP))
 
         val shuffleRow = LinearLayout(this).apply {
@@ -358,20 +362,41 @@ class MainActivity : Activity() {
         dotShuffle = View(this)
         shuffleRow.addView(btnShuffle, lp(WRAP, WRAP))
         shuffleRow.addView(dotShuffle, lp(px(16), px(16)).apply { leftMargin = px(6) })
-        volCol.addView(shuffleRow, lp(WRAP, WRAP).apply { topMargin = px(6) })
+        volCol.addView(shuffleRow, lp(WRAP, WRAP).apply { topMargin = px(4) })
         updateShuffleUi(false)
+
+        val boostRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        btnBoost = label("BOOST", 12f, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(px(8), px(5), px(8), px(5))
+            setOnClickListener {
+                val s = service
+                if (s != null) {
+                    s.boost = !s.boost
+                    prefs.edit().putBoolean("boost", s.boost).apply()
+                }
+            }
+        }
+        dotBoost = View(this)
+        boostRow.addView(btnBoost, lp(WRAP, WRAP))
+        boostRow.addView(dotBoost, lp(px(16), px(16)).apply { leftMargin = px(6) })
+        volCol.addView(boostRow, lp(WRAP, WRAP).apply { topMargin = px(4) })
+        updateBoostUi(false)
 
         volRow.addView(volCol, lp(0, WRAP, 1f))
         volView = VolumeView(this) { l -> setVolume(l) }
-        volRow.addView(volView, lp(px(44), px(76)))
+        volRow.addView(volView, lp(px(44), px(84)))
         val btnCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
-        btnCol.addView(VolButton(this, 1) { d -> stepVolume(d) }, lp(px(36), px(36)))
+        btnCol.addView(VolButton(this, 1) { d -> stepVolume(d) }, lp(px(38), px(38)))
         btnCol.addView(
             VolButton(this, -1) { d -> stepVolume(d) },
-            lp(px(36), px(36)).apply { topMargin = px(4) }
+            lp(px(38), px(38)).apply { topMargin = px(8) }
         )
         volRow.addView(btnCol, lp(WRAP, WRAP).apply { leftMargin = px(8) })
         right.addView(volRow, lp(MATCH, WRAP).apply { topMargin = px(6) })
@@ -556,6 +581,16 @@ class MainActivity : Activity() {
         btnShuffle.background = if (on) box(RED, 0xFF8E1B1B.toInt(), 6f) else box(PANEL, NAVY, 6f)
         btnShuffle.setTextColor(if (on) Color.WHITE else NAVY)
         dotShuffle.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (on) RED else BLUE)
+            setStroke(px(2), NAVY)
+        }
+    }
+
+    private fun updateBoostUi(on: Boolean) {
+        btnBoost.background = if (on) box(RED, 0xFF8E1B1B.toInt(), 6f) else box(PANEL, NAVY, 6f)
+        btnBoost.setTextColor(if (on) Color.WHITE else NAVY)
+        dotBoost.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(if (on) RED else BLUE)
             setStroke(px(2), NAVY)
@@ -909,6 +944,7 @@ class MainActivity : Activity() {
         val ni = s.nextIndex()
         tvNext.text = if (t != null && ni in 0 until n) s.tracks[ni].title else "-"
         updateShuffleUi(s.shuffle)
+        updateBoostUi(s.boost)
         if (s.index != listIndex) {
             listIndex = s.index
             adapter.notifyDataSetChanged()
