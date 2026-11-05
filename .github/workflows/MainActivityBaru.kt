@@ -1,4 +1,4 @@
-package com.hadi.lcgjukebox
+package com.musikH.lcgjukebos
 
 import android.Manifest
 import android.app.Activity
@@ -68,6 +68,86 @@ class VolumeView(context: Context, private val onLevel: (Int) -> Unit) : View(co
             parent?.requestDisallowInterceptTouchEvent(true)
         }
         return true
+    }
+}
+
+class VolButton(context: Context, private val sign: Int, private val onStep: (Int) -> Unit) : View(context) {
+    // Gambar tombol dari res/drawable-nodpi (vol_up / vol_down). Jika tidak ada, tombol digambar manual.
+    private val bmp: Bitmap? = run {
+        val id = context.resources.getIdentifier(
+            if (sign > 0) "vol_up" else "vol_down", "drawable", context.packageName
+        )
+        if (id != 0) BitmapFactory.decodeResource(context.resources, id) else null
+    }
+    private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val dst = RectF()
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NAVY }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = NAVY
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val repeat = object : Runnable {
+        override fun run() {
+            onStep(sign)
+            postDelayed(this, 150)
+        }
+    }
+
+    override fun onDraw(c: Canvas) {
+        val s = minOf(width, height).toFloat()
+        val cx = width / 2f
+        val cy = height / 2f
+        val b = bmp
+        if (b != null) {
+            dst.set(cx - s / 2f, cy - s / 2f, cx + s / 2f, cy + s / 2f)
+            bmpPaint.alpha = if (isPressed) 150 else 255
+            c.drawBitmap(b, null, dst, bmpPaint)
+            return
+        }
+        fill.color = if (isPressed) 0xFF4FC9B3.toInt() else 0xFF7AE6D4.toInt()
+        c.drawCircle(cx, cy, s / 2f - 1f, fill)
+        val x0 = cx - s / 2f
+        val y0 = cy - s / 2f
+        val speaker = Path()
+        speaker.moveTo(x0 + 0.22f * s, y0 + 0.42f * s)
+        speaker.lineTo(x0 + 0.34f * s, y0 + 0.42f * s)
+        speaker.lineTo(x0 + 0.50f * s, y0 + 0.28f * s)
+        speaker.lineTo(x0 + 0.50f * s, y0 + 0.72f * s)
+        speaker.lineTo(x0 + 0.34f * s, y0 + 0.58f * s)
+        speaker.lineTo(x0 + 0.22f * s, y0 + 0.58f * s)
+        speaker.close()
+        c.drawPath(speaker, ink)
+        line.strokeWidth = 0.075f * s
+        val sx = x0 + 0.72f * s
+        val sy = y0 + 0.5f * s
+        val h = 0.10f * s
+        c.drawLine(sx - h, sy, sx + h, sy, line)
+        if (sign > 0) c.drawLine(sx, sy - h, sx, sy + h, line)
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.action) {
+            MotionEvent.ACTION_DOWN -> {
+                isPressed = true
+                invalidate()
+                onStep(sign)
+                postDelayed(repeat, 400)
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isPressed = false
+                removeCallbacks(repeat)
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(repeat)
+        super.onDetachedFromWindow()
     }
 }
 
@@ -266,7 +346,7 @@ class MainActivity : Activity() {
         }
         btnShuffle = label("ACAK", 12f, bold = true).apply {
             gravity = Gravity.CENTER
-            setPadding(px(10), px(5), px(10), px(5))
+            setPadding(px(8), px(5), px(8), px(5))
             setOnClickListener {
                 val s = service
                 if (s != null) {
@@ -277,17 +357,27 @@ class MainActivity : Activity() {
         }
         dotShuffle = View(this)
         shuffleRow.addView(btnShuffle, lp(WRAP, WRAP))
-        shuffleRow.addView(dotShuffle, lp(px(16), px(16)).apply { leftMargin = px(8) })
+        shuffleRow.addView(dotShuffle, lp(px(16), px(16)).apply { leftMargin = px(6) })
         volCol.addView(shuffleRow, lp(WRAP, WRAP).apply { topMargin = px(6) })
         updateShuffleUi(false)
 
         volRow.addView(volCol, lp(0, WRAP, 1f))
         volView = VolumeView(this) { l -> setVolume(l) }
-        volRow.addView(volView, lp(px(52), px(76)))
+        volRow.addView(volView, lp(px(44), px(76)))
+        val btnCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        btnCol.addView(VolButton(this, 1) { d -> stepVolume(d) }, lp(px(36), px(36)))
+        btnCol.addView(
+            VolButton(this, -1) { d -> stepVolume(d) },
+            lp(px(36), px(36)).apply { topMargin = px(4) }
+        )
+        volRow.addView(btnCol, lp(WRAP, WRAP).apply { leftMargin = px(8) })
         right.addView(volRow, lp(MATCH, WRAP).apply { topMargin = px(6) })
 
-        top.addView(left, lp(0, WRAP, 1f))
-        top.addView(right, lp(0, WRAP, 1f).apply { leftMargin = px(10) })
+        top.addView(left, lp(0, WRAP, 0.85f))
+        top.addView(right, lp(0, WRAP, 1.15f).apply { leftMargin = px(10) })
         body.addView(top, lp(MATCH, WRAP))
 
         // Panel info lagu
@@ -555,6 +645,18 @@ class MainActivity : Activity() {
         try {
             val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(level * max / 10f), 0)
+        } catch (e: Exception) {
+        }
+        syncVolume()
+    }
+
+    private fun stepVolume(dir: Int) {
+        try {
+            audio.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                if (dir > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                0
+            )
         } catch (e: Exception) {
         }
         syncVolume()
