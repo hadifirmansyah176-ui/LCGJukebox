@@ -572,7 +572,7 @@ class MainActivity : Activity() {
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("Tentang")
-            .setMessage("Aplikasi ini hanya untuk hiburan pribadi tidak dijual belikan.\n\nby.Anonim 11/2026")
+            .setMessage("Aplikasi ini hanya untuk hiburan pribadi tidak dijual belikan.\n\nVersi saat ini : V1.0\n\nby.Anonim 11/2026")
             .setPositiveButton("OK", null)
             .show()
     }

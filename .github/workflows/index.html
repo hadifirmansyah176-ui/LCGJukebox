@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; media-src file: blob:; img-src 'self' file: data:">
+<title>LCG Jukebox</title>
+<style>
+  :root { --navy:#1B2A6B; --panel:#E6EBFC; --red:#D32F2F; --blue:#1E5BFF; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
+  body { font-family:"Segoe UI", Roboto, Arial, sans-serif; background:var(--navy); color:var(--navy); user-select:none; overflow:hidden; }
+  #app { display:flex; flex-direction:column; height:100%; position:relative; }
+  .titlebar { background:var(--navy); color:#fff; text-align:center; font-weight:700; font-size:18px; padding:8px 0; }
+  .body { flex:1; min-height:0; display:flex; flex-direction:column; padding:10px; background:linear-gradient(#C9D2F5,#8FA3E6); }
+  .box { background:var(--panel); border:2px solid var(--navy); border-radius:10px; }
+  .top { display:flex; gap:10px; }
+  .left { flex:0.85; }
+  .right { flex:1.15; }
+  #time { padding:3px 8px; text-align:center; font-weight:700; font-size:18px; }
+  .art { width:116px; height:116px; margin-top:6px; border:2px solid var(--navy); border-radius:6px; background:#5A6BB5; overflow:hidden; display:flex; align-items:center; justify-content:center; color:#fff; font-size:44px; }
+  .art img { width:100%; height:100%; object-fit:cover; }
+  #wave { display:block; width:100%; height:44px; background:#2A3A8A; border:2px solid var(--navy); border-radius:10px; }
+  .volrow { display:flex; align-items:center; margin-top:6px; gap:8px; }
+  .volcol { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  #volnum { font-weight:700; font-size:18px; }
+  .tog { display:flex; align-items:center; gap:6px; }
+  .tog button { font:700 13px "Segoe UI", Arial, sans-serif; padding:5px 9px; border:2px solid var(--navy); border-radius:6px; background:var(--panel); color:var(--navy); cursor:pointer; }
+  .tog button.on { background:var(--red); border-color:#8E1B1B; color:#fff; }
+  .dot { width:16px; height:16px; border-radius:50%; background:var(--blue); border:2px solid var(--navy); }
+  .dot.on { background:var(--red); }
+  #volbars { width:44px; height:90px; cursor:pointer; touch-action:none; }
+  .volbtns { display:flex; flex-direction:column; gap:8px; }
+  .volbtns img { width:40px; height:40px; cursor:pointer; display:block; }
+  .volbtns img:active { opacity:.6; }
+  .info { padding:4px 10px; margin-top:8px; }
+  .info .row2 { display:flex; align-items:baseline; white-space:nowrap; overflow:hidden; }
+  .info .lbl, .next .lbl { font-style:italic; font-size:13px; margin-right:4px; }
+  .info .val { font-weight:700; font-size:15px; overflow:hidden; text-overflow:ellipsis; }
+  #bitrate { text-align:right; font-size:11px; min-height:14px; }
+  #seek { width:100%; margin-top:8px; accent-color:#3CC83C; }
+  .next { padding:4px 10px; margin-top:8px; }
+  .next .nrow { display:flex; justify-content:space-between; font-size:13px; }
+  #next { font-weight:700; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #count { font-weight:700; font-size:14px; margin:8px 0 4px; }
+  #list { flex:1; min-height:120px; overflow-y:auto; background:var(--panel); border:2px solid var(--navy); border-radius:6px; }
+  .row { padding:9px 10px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; border-bottom:1px solid rgba(27,42,107,.15); }
+  .row:hover { background:#cfd8f7; }
+  .row.cur { background:var(--navy); color:#fff; }
+  .bar { display:flex; background:var(--navy); }
+  .bar button { flex:1; background:none; border:none; color:#fff; font:700 30px "Segoe UI", "Segoe UI Symbol", Arial, sans-serif; -webkit-text-stroke:1px #fff; padding:14px 0; cursor:pointer; white-space:nowrap; }
+  .bar button:hover { background:rgba(255,255,255,.12); }
+  .bar button:active { background:rgba(255,255,255,.25); }
+  #btnMenu { flex:1.7; }
+  #btnExit { flex:1.4; }
+  #menu { display:none; position:absolute; left:8px; bottom:74px; background:#fff; border:2px solid var(--navy); border-radius:8px; z-index:10; min-width:230px; box-shadow:0 4px 14px rgba(0,0,0,.35); }
+  #menu.show { display:block; }
+  #menu div { padding:12px 16px; font-size:15px; cursor:pointer; }
+  #menu div:hover { background:#cfd8f7; }
+  #overlay { display:none; position:absolute; inset:0; background:rgba(0,0,0,.5); z-index:20; align-items:center; justify-content:center; }
+  #overlay.show { display:flex; }
+  #dialog { background:#fff; border:2px solid var(--navy); border-radius:12px; padding:18px; width:88%; max-width:360px; }
+  #mTitle { font-weight:700; font-size:18px; margin-bottom:10px; }
+  #mMsg { white-space:pre-line; font-size:14px; margin-bottom:14px; }
+  #mBtns { display:flex; flex-direction:column; gap:8px; }
+  #mBtns button { padding:10px; font:600 14px "Segoe UI", Arial, sans-serif; border:2px solid var(--navy); background:var(--panel); color:var(--navy); border-radius:8px; cursor:pointer; }
+  #mBtns button:hover { background:#cfd8f7; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="titlebar">LCG Jukebox</div>
+  <div class="body">
+    <div class="top">
+      <div class="left">
+        <div id="time" class="box">-0:00</div>
+        <div id="art" class="art">♪</div>
+      </div>
+      <div class="right">
+        <canvas id="wave"></canvas>
+        <div class="volrow">
+          <div class="volcol">
+            <div id="volnum">100</div>
+            <div class="tog"><button id="btnShuffle">ACAK</button><span id="dotShuffle" class="dot"></span></div>
+            <div class="tog"><button id="btnBoost">BOOST</button><span id="dotBoost" class="dot"></span></div>
+          </div>
+          <canvas id="volbars"></canvas>
+          <div class="volbtns">
+            <img id="volUp" src="vol_up.png" alt="Naikkan volume" draggable="false">
+            <img id="volDown" src="vol_down.png" alt="Turunkan volume" draggable="false">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="box info">
+      <div id="bitrate"></div>
+      <div class="row2"><span class="lbl">Artist:</span><span id="artist" class="val">-</span></div>
+      <div class="row2"><span class="lbl">Title:</span><span id="title" class="val">-</span></div>
+    </div>
+
+    <input id="seek" type="range" min="0" max="1" step="0.1" value="0">
+
+    <div class="box next">
+      <div class="nrow"><span class="lbl">Next:</span><span id="trackno">Track: 0/0</span></div>
+      <div id="next">-</div>
+    </div>
+
+    <div id="count">Daftar lagu (0)</div>
+    <div id="list"></div>
+  </div>
+
+  <div class="bar">
+    <button id="btnMenu">Menu</button>
+    <button id="btnPrev">|◀</button>
+    <button id="play">▶</button>
+    <button id="btnNext">▶|</button>
+    <button id="btnExit">Exit</button>
+  </div>
+
+  <div id="menu">
+    <div data-act="add">Tambah lagu / folder</div>
+    <div data-act="all">Semua lagu di PC</div>
+    <div data-act="clear">Hapus daftar lagu</div>
+    <div data-act="about">Tentang</div>
+  </div>
+
+  <div id="overlay"><div id="dialog"><div id="mTitle"></div><div id="mMsg"></div><div id="mBtns"></div></div></div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    tracks: [], index: -1, shuffle: false, boost: false, volume: 100,
+    history: [], randomNext: -1, meta: null, sources: [], cleared: false,
+    errors: 0, dragging: false
+  };
+  const audio = new Audio();
+  audio.preload = 'auto';
+  let ctx = null, boostGain = null, comp = null, volGain = null, analyser = null;
+  let saveTimer = null;
+
+  // ---------- Audio (volume + BOOST + gelombang) ----------
+  function ensureGraph() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaElementSource(audio);
+    boostGain = ctx.createGain();
+    comp = ctx.createDynamicsCompressor();
+    volGain = ctx.createGain();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    src.connect(boostGain);
+    boostGain.connect(comp);
+    comp.connect(volGain);
+    volGain.connect(ctx.destination);
+    comp.connect(analyser);
+    applyAudio();
+  }
+
+  function applyAudio() {
+    if (!ctx) return;
+    volGain.gain.value = state.volume / 100;
+    boostGain.gain.value = state.boost ? 4 : 1;      // sekitar +12 dB
+    comp.threshold.value = state.boost ? -12 : 0;
+    comp.knee.value = state.boost ? 6 : 0;
+    comp.ratio.value = state.boost ? 20 : 1;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.25;
+  }
+
+  function saveSettings() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      window.api.saveSettings({
+        sources: state.sources, cleared: state.cleared,
+        shuffle: state.shuffle, boost: state.boost, volume: state.volume
+      });
+    }, 300);
+  }
+
+  // ---------- Pemutaran ----------
+  function fmt(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  }
+
+  function nextIndex() {
+    const n = state.tracks.length;
+    if (n === 0) return -1;
+    if (!state.shuffle) return (state.index + 1) % n;
+    if (state.randomNext < 0 || state.randomNext >= n || (n > 1 && state.randomNext === state.index)) {
+      let r = Math.floor(Math.random() * n);
+      if (n > 1) while (r === state.index) r = Math.floor(Math.random() * n);
+      state.randomNext = r;
+    }
+    return state.randomNext;
+  }
+
+  function next() {
+    if (!state.tracks.length) return;
+    const t = nextIndex();
+    if (state.shuffle && state.index >= 0) {
+      state.history.push(state.index);
+      if (state.history.length > 100) state.history.shift();
+    }
+    playIndex(t);
+  }
+
+  function prev() {
+    if (!state.tracks.length) return;
+    if (state.shuffle && state.history.length) { playIndex(state.history.pop()); return; }
+    playIndex(state.index <= 0 ? state.tracks.length - 1 : state.index - 1);
+  }
+
+  function onPlayError(e) {
+    if (e && e.name === 'AbortError') return;
+    state.errors++;
+    if (state.errors < state.tracks.length) setTimeout(next, 300);
+  }
+
+  async function playIndex(i) {
+    const t = state.tracks[i];
+    if (!t) return;
+    state.index = i;
+    state.randomNext = -1;
+    state.meta = null;
+    ensureGraph();
+    audio.src = t.u;
+    refreshUi();
+    loadMeta(i);
+    try {
+      await ctx.resume();
+      await audio.play();
+      state.errors = 0;
+    } catch (e) {
+      onPlayError(e);
+    }
+    refreshUi();
+  }
+
+  function toggle() {
+    if (!audio.getAttribute('src') || state.index < 0) {
+      if (state.tracks.length) playIndex(state.index >= 0 ? state.index : 0);
+      return;
+    }
+    ensureGraph();
+    if (audio.paused) { ctx.resume(); audio.play().catch(onPlayError); }
+    else audio.pause();
+    refreshUi();
+  }
+
+  function stopPlayback() {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    state.index = -1;
+    state.meta = null;
+    state.randomNext = -1;
+    state.history = [];
+  }
+
+  audio.addEventListener('ended', next);
+  audio.addEventListener('play', refreshUi);
+  audio.addEventListener('pause', refreshUi);
+  audio.addEventListener('error', () => { if (audio.getAttribute('src')) onPlayError({ name: 'MediaError' }); });
+
+  async function loadMeta(i) {
+    const t = state.tracks[i];
+    if (!t) return;
+    const m = await window.api.meta(t.p);
+    if (state.index !== i) return;
+    state.meta = m;
+    const art = $('art');
+    art.textContent = '';
+    if (m.pic) {
+      const img = document.createElement('img');
+      img.src = m.pic;
+      art.appendChild(img);
+    } else {
+      art.textContent = '♪';
+    }
+    const parts = [];
+    if (m.bitrate) parts.push(m.bitrate + 'kbps');
+    if (m.sampleRate) parts.push(Math.round(m.sampleRate / 1000) + 'KHz');
+    $('bitrate').textContent = parts.join('/');
+    refreshUi();
+  }
+
+  // ---------- Tampilan ----------
+  let lastRow = null;
+
+  function refreshUi() {
+    const t = state.tracks[state.index];
+    const m = state.meta;
+    $('title').textContent = (m && m.title) || (t ? t.title : '-');
+    $('artist').textContent = (m && m.artist) || '-';
+    $('play').textContent = (!audio.paused && audio.getAttribute('src')) ? '❚❚' : '▶';
+    $('trackno').textContent = 'Track: ' + (t ? state.index + 1 : 0) + '/' + state.tracks.length;
+    const ni = nextIndex();
+    $('next').textContent = (t && ni >= 0) ? state.tracks[ni].title : '-';
+    $('btnShuffle').classList.toggle('on', state.shuffle);
+    $('dotShuffle').classList.toggle('on', state.shuffle);
+    $('btnBoost').classList.toggle('on', state.boost);
+    $('dotBoost').classList.toggle('on', state.boost);
+    $('volnum').textContent = state.volume;
+    $('count').textContent = 'Daftar lagu (' + state.tracks.length + ')';
+    if (!t) { $('bitrate').textContent = ''; $('art').textContent = '♪'; }
+    const row = t ? $('list').children[state.index] : null;
+    if (row !== lastRow) {
+      if (lastRow) lastRow.classList.remove('cur');
+      if (row) { row.classList.add('cur'); row.scrollIntoView({ block: 'nearest' }); }
+      lastRow = row || null;
+    }
+    drawBars();
+  }
+
+  function renderList() {
+    const list = $('list');
+    list.textContent = '';
+    lastRow = null;
+    const frag = document.createDocumentFragment();
+    state.tracks.forEach((t, i) => {
+      const d = document.createElement('div');
+      d.className = 'row';
+      d.dataset.i = String(i);
+      d.textContent = (i + 1) + '. ' + t.title;
+      frag.appendChild(d);
+    });
+    list.appendChild(frag);
+  }
+
+  $('list').addEventListener('click', (e) => {
+    const r = e.target.closest('.row');
+    if (r) playIndex(Number(r.dataset.i));
+  });
+
+  function sizeCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { g, w, h };
+  }
+
+  function drawBars() {
+    const { g, w, h } = sizeCanvas($('volbars'));
+    g.clearRect(0, 0, w, h);
+    const n = 10, gap = 3, bh = (h - gap * (n - 1)) / n;
+    const level = Math.round(state.volume / 10);
+    for (let i = 0; i < n; i++) {
+      const top = h - (i + 1) * bh - i * gap;
+      const bw = w * (0.35 + 0.65 * (i + 1) / n);
+      g.fillStyle = i < level ? '#3CC83C' : '#465078';
+      g.fillRect(w - bw, top, bw, bh);
+    }
+  }
+
+  const waveBuf = new Uint8Array(256);
+  function drawWave() {
+    const { g, w, h } = sizeCanvas($('wave'));
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = '#fff';
+    g.lineWidth = 2;
+    g.beginPath();
+    const playing = analyser && !audio.paused;
+    if (playing) analyser.getByteTimeDomainData(waveBuf);
+    for (let i = 0; i < 128; i++) {
+      const x = w * i / 127;
+      const v = playing ? (waveBuf[i * 2] - 128) / 128 : 0;
+      const y = h / 2 + v * (h / 2 - 3);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+
+  function loop() {
+    const dur = audio.duration;
+    const ok = isFinite(dur) && dur > 0;
+    if (ok && !state.dragging) {
+      $('seek').max = dur;
+      $('seek').value = audio.currentTime;
+    }
+    $('time').textContent = '-' + fmt(ok ? dur - audio.currentTime : 0);
+    drawWave();
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Volume ----------
+  function setVolume(v) {
+    state.volume = Math.max(0, Math.min(100, Math.round(v)));
+    applyAudio();
+    $('volnum').textContent = state.volume;
+    drawBars();
+    saveSettings();
+  }
+
+  function barsPointer(e) {
+    const r = $('volbars').getBoundingClientRect();
+    const frac = 1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+    setVolume(Math.round(frac * 10) * 10);
+  }
+  $('volbars').addEventListener('pointerdown', (e) => { e.target.setPointerCapture(e.pointerId); barsPointer(e); });
+  $('volbars').addEventListener('pointermove', (e) => { if (e.buttons) barsPointer(e); });
+
+  function holdButton(el, delta) {
+    let t1 = null, t2 = null;
+    const stop = () => { clearTimeout(t1); clearInterval(t2); };
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      setVolume(state.volume + delta);
+      t1 = setTimeout(() => { t2 = setInterval(() => setVolume(state.volume + delta), 120); }, 400);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => el.addEventListener(ev, stop));
+  }
+  holdButton($('volUp'), 5);
+  holdButton($('volDown'), -5);
+
+  // ---------- Tombol ----------
+  $('btnPrev').onclick = prev;
+  $('btnNext').onclick = next;
+  $('play').onclick = toggle;
+  $('btnExit').onclick = () => window.api.quit();
+  $('btnShuffle').onclick = () => { state.shuffle = !state.shuffle; state.history = []; state.randomNext = -1; refreshUi(); saveSettings(); };
+  $('btnBoost').onclick = () => { state.boost = !state.boost; applyAudio(); refreshUi(); saveSettings(); };
+
+  $('seek').addEventListener('pointerdown', () => { state.dragging = true; });
+  $('seek').addEventListener('input', () => { audio.currentTime = Number($('seek').value); });
+  $('seek').addEventListener('pointerup', () => { state.dragging = false; });
+  $('seek').addEventListener('change', () => { state.dragging = false; });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target && e.target.tagName === 'INPUT' && e.key !== ' ') return;
+    if (e.key === ' ') { e.preventDefault(); toggle(); }
+    else if (e.key === 'ArrowRight') next();
+    else if (e.key === 'ArrowLeft') prev();
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setVolume(state.volume + 5); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setVolume(state.volume - 5); }
+  });
+
+  // ---------- Menu ----------
+  $('btnMenu').onclick = () => $('menu').classList.toggle('show');
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#menu') && e.target.id !== 'btnMenu') $('menu').classList.remove('show');
+  });
+
+  function modal(title, msg, buttons) {
+    $('mTitle').textContent = title;
+    $('mMsg').textContent = msg || '';
+    const box = $('mBtns');
+    box.textContent = '';
+    buttons.forEach((b) => {
+      const el = document.createElement('button');
+      el.textContent = b.label;
+      el.onclick = () => { $('overlay').classList.remove('show'); if (b.fn) b.fn(); };
+      box.appendChild(el);
+    });
+    $('overlay').classList.add('show');
+  }
+
+  async function reloadTracks(fresh) {
+    const list = await window.api.loadTracks({ sources: state.sources, cleared: state.cleared });
+    state.tracks = list;
+    state.history = [];
+    state.randomNext = -1;
+    renderList();
+    if (fresh) {
+      if (list.length === 0) stopPlayback();
+      else if (state.index >= 0) { playIndex(0); return; }
+    }
+    refreshUi();
+  }
+
+  async function addSources(items) {
+    const key = (s) => s.t + '|' + s.p;
+    const have = new Set(state.sources.map(key));
+    items.forEach((s) => { if (!have.has(key(s))) { state.sources.push(s); have.add(key(s)); } });
+    state.cleared = false;
+    saveSettings();
+    await reloadTracks(true);
+  }
+
+  async function addFiles() {
+    const paths = await window.api.pickFiles();
+    if (paths && paths.length) addSources(paths.map((p) => ({ t: 'F', p })));
+  }
+
+  async function addFolder() {
+    const p = await window.api.pickFolder();
+    if (p) addSources([{ t: 'D', p }]);
+  }
+
+  $('menu').addEventListener('click', (e) => {
+    const act = e.target.dataset.act;
+    $('menu').classList.remove('show');
+    if (act === 'add') {
+      modal('Tambah lagu / folder', '', [
+        { label: 'Pilih lagu (file)', fn: addFiles },
+        { label: 'Pilih folder', fn: addFolder },
+        { label: 'Batal' }
+      ]);
+    } else if (act === 'all') {
+      state.sources = [];
+      state.cleared = false;
+      saveSettings();
+      reloadTracks(true);
+    } else if (act === 'clear') {
+      modal('Hapus daftar lagu', 'Semua lagu di daftar beranda akan dihapus. File lagu di PC tidak ikut terhapus.', [
+        { label: 'Hapus', fn: () => {
+          state.sources = [];
+          state.cleared = true;
+          saveSettings();
+          stopPlayback();
+          state.tracks = [];
+          renderList();
+          refreshUi();
+        } },
+        { label: 'Batal' }
+      ]);
+    } else if (act === 'about') {
+      modal('Tentang', 'Aplikasi ini hanya untuk hiburan pribadi tidak dijual belikan.\n\nVersi saat ini : V1.0\n\nby.Anonim 11/2026', [{ label: 'OK' }]);
+    }
+  });
+
+  // ---------- Mulai ----------
+  (async () => {
+    const s = (await window.api.getSettings()) || {};
+    state.sources = Array.isArray(s.sources) ? s.sources : [];
+    state.cleared = !!s.cleared;
+    state.shuffle = !!s.shuffle;
+    state.boost = !!s.boost;
+    state.volume = Number.isFinite(s.volume) ? s.volume : 100;
+    drawBars();
+    refreshUi();
+    await reloadTracks(false);
+    requestAnimationFrame(loop);
+  })();
+})();
+</script>
+</body>
+</html>
