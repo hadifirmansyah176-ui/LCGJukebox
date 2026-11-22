@@ -1,18 +1,20 @@
 package com.musikH.lcgjukebos
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import android.media.AudioManager
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
-import android.os.Binder
-import android.os.Build
-import android.os.IBinder
+import android.os.*
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationCompat.MediaStyle
 import kotlin.random.Random
 
 data class Track(val uri: Uri, val title: String, val artist: String)
@@ -29,61 +31,131 @@ class PlayerService : Service() {
     private val shufflePlayed = mutableSetOf<Int>()
     private var randomNext = -1
     private var enhancer: LoudnessEnhancer? = null
+    private lateinit var mediaSession: MediaSessionCompat
+    private lateinit var audioManager: AudioManager
 
     var tracks: List<Track> = emptyList()
-        set(v) {
-            field = v
+        set(value) {
+            field = value
             history.clear()
             shufflePlayed.clear()
             randomNext = -1
+            updateMetadata()
         }
 
     var index = -1
         private set
 
     var shuffle = false
-        set(v) {
-            field = v
+        set(value) {
+            field = value
             history.clear()
             shufflePlayed.clear()
-            if (v && index in tracks.indices) shufflePlayed.add(index)
+
+            if (value && index in tracks.indices) {
+                shufflePlayed.add(index)
+            }
+
             randomNext = -1
             onChange?.invoke()
         }
 
     var boost = false
-        set(v) {
-            field = v
+        set(value) {
+            field = value
             applyBoost()
             onChange?.invoke()
         }
 
     var onChange: (() -> Unit)? = null
 
-    val currentTrack: Track? get() = tracks.getOrNull(index)
+    val currentTrack: Track?
+        get() = tracks.getOrNull(index)
 
     val isPlaying: Boolean
-        get() = try { player?.isPlaying == true } catch (e: IllegalStateException) { false }
+        get() = try {
+            player?.isPlaying == true
+        } catch (_: IllegalStateException) {
+            false
+        }
 
     val duration: Int
-        get() = try { player?.duration ?: 0 } catch (e: IllegalStateException) { 0 }
+        get() = try {
+            player?.duration ?: 0
+        } catch (_: IllegalStateException) {
+            0
+        }
 
     val position: Int
-        get() = try { player?.currentPosition ?: 0 } catch (e: IllegalStateException) { 0 }
-
-    override fun onBind(intent: Intent?): IBinder = binder
+        get() = try {
+            player?.currentPosition ?: 0
+        } catch (_: IllegalStateException) {
+            0
+        }
 
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= 26) {
+
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+
+        mediaSession = MediaSessionCompat(this, "LCGJukeboxSession").apply {
+            isActive = true
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() = toggle()
+                override fun onPause() = toggle()
+                override fun onSkipToNext() = next()
+                override fun onSkipToPrevious() = prev()
+                override fun onSeekTo(pos: Long) = seekTo(pos.toInt())
+                override fun onStop() = clearAll()
+            })
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL,
                 "Pemutar musik",
                 NotificationManager.IMPORTANCE_LOW
-            )
+            ).apply {
+                description = "Kontrol pemutaran LCG Jukebox"
+                setSound(null, null)
+                lockscreenVisibility =
+                    Notification.VISIBILITY_PUBLIC
+            }
+
             getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(channel)
         }
+
+        val focusRequest = AudioManager.OnAudioFocusChangeListener { focus ->
+            when (focus) {
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    if (isPlaying) toggle()
+                }
+            }
+        }
+
+        audioManager.requestAudioFocus(
+            focusRequest,
+            AudioManager.STREAM_MUSIC,
+            AudioManager.AUDIOFOCUS_GAIN
+        )
+    }
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
+        when (intent?.action) {
+            ACTION_PLAY_PAUSE -> toggle()
+            ACTION_NEXT -> next()
+            ACTION_PREV -> prev()
+        }
+
+        return START_STICKY
     }
 
     fun play(i: Int) {
@@ -94,7 +166,11 @@ class PlayerService : Service() {
         }
 
         index = i
-        if (shuffle) shufflePlayed.add(i)
+
+        if (shuffle) {
+            shufflePlayed.add(i)
+        }
+
         randomNext = -1
         releaseEnhancer()
 
@@ -102,6 +178,7 @@ class PlayerService : Service() {
         player = null
 
         val mp = MediaPlayer()
+
         try {
             mp.setDataSource(applicationContext, track.uri)
 
@@ -122,40 +199,45 @@ class PlayerService : Service() {
             }
 
             mp.setOnErrorListener { _, _, _ -> true }
+
             mp.prepare()
             attachEnhancer(mp)
             mp.start()
+
             player = mp
+            updateMetadata()
+            updatePlaybackState()
             goForeground()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             mp.release()
         }
 
         onChange?.invoke()
     }
 
-    @Suppress("DEPRECATION")
     fun toggle() {
-        val p = player
-        if (p == null) {
+        val mp = player
+
+        if (mp == null) {
             if (tracks.isNotEmpty()) {
                 play(if (index >= 0) index else 0)
             }
             return
         }
 
-        if (p.isPlaying) {
-            p.pause()
+        if (mp.isPlaying) {
+            mp.pause()
             stopForeground(false)
         } else {
-            p.start()
+            mp.start()
             goForeground()
         }
 
+        updatePlaybackState()
+        updateMetadata()
         onChange?.invoke()
     }
 
-    @Suppress("DEPRECATION")
     fun clearAll() {
         releaseEnhancer()
         player?.release()
@@ -163,9 +245,11 @@ class PlayerService : Service() {
         index = -1
         tracks = emptyList()
 
+        mediaSession.isActive = false
+
         try {
             stopForeground(true)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
 
         onChange?.invoke()
@@ -176,7 +260,10 @@ class PlayerService : Service() {
         if (n == 0) return -1
         if (!shuffle) return (index + 1) % n
 
-        val available = tracks.indices.filter { it !in shufflePlayed }
+        val available = tracks.indices.filter {
+            it !in shufflePlayed
+        }
+
         if (available.isEmpty()) return -1
 
         if (randomNext !in available) {
@@ -190,6 +277,7 @@ class PlayerService : Service() {
         if (tracks.isEmpty()) return
 
         val target = nextIndex()
+
         if (target !in tracks.indices) {
             player?.let { stopAtPlaylistEnd(it) }
             return
@@ -214,7 +302,6 @@ class PlayerService : Service() {
         play(if (index <= 0) tracks.size - 1 else index - 1)
     }
 
-    @Suppress("DEPRECATION")
     private fun stopAtPlaylistEnd(completedPlayer: MediaPlayer) {
         if (player !== completedPlayer) return
 
@@ -223,14 +310,15 @@ class PlayerService : Service() {
 
         try {
             completedPlayer.release()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
 
         try {
             stopForeground(true)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
 
+        updatePlaybackState()
         onChange?.invoke()
     }
 
@@ -238,77 +326,201 @@ class PlayerService : Service() {
         try {
             enhancer = LoudnessEnhancer(mp.audioSessionId)
             applyBoost()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             enhancer = null
         }
     }
 
     private fun applyBoost() {
         try {
-            val e = enhancer ?: return
-            e.setTargetGain(if (boost) 1200 else 0)
-            e.setEnabled(boost)
-        } catch (ex: Exception) {
+            enhancer?.apply {
+                setTargetGain(if (boost) 1200 else 0)
+                setEnabled(boost)
+            }
+        } catch (_: Exception) {
         }
     }
 
     private fun releaseEnhancer() {
         try {
             enhancer?.release()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
+
         enhancer = null
     }
 
     fun seekTo(ms: Int) {
         try {
             player?.seekTo(ms)
-        } catch (e: IllegalStateException) {
+            updatePlaybackState()
+        } catch (_: IllegalStateException) {
         }
     }
 
-    private fun goForeground() {
-        val t = currentTrack ?: return
-        val flags =
-            if (Build.VERSION.SDK_INT >= 23)
-                PendingIntent.FLAG_IMMUTABLE
-            else
-                0
+    private fun updateMetadata() {
+        val track = currentTrack ?: return
+        var bitmap: Bitmap? = null
 
-        val open = PendingIntent.getActivity(
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(applicationContext, track.uri)
+
+            retriever.embeddedPicture?.let { bytes ->
+                bitmap = android.graphics.BitmapFactory.decodeByteArray(
+                    bytes,
+                    0,
+                    bytes.size
+                )
+            }
+
+            retriever.release()
+        } catch (_: Exception) {
+        }
+
+        val artist = if (
+            track.artist == "Tidak diketahui"
+        ) "" else track.artist
+
+        val metadata = MediaMetadataCompat.Builder()
+            .putString(
+                MediaMetadataCompat.METADATA_KEY_TITLE,
+                track.title
+            )
+            .putString(
+                MediaMetadataCompat.METADATA_KEY_ARTIST,
+                artist
+            )
+            .putLong(
+                MediaMetadataCompat.METADATA_KEY_DURATION,
+                duration.toLong()
+            )
+
+        if (bitmap != null) {
+            metadata.putBitmap(
+                MediaMetadataCompat.METADATA_KEY_ALBUM_ART,
+                bitmap
+            )
+        }
+
+        mediaSession.setMetadata(metadata.build())
+    }
+
+    private fun updatePlaybackState() {
+        val state = if (isPlaying) {
+            PlaybackStateCompat.STATE_PLAYING
+        } else {
+            PlaybackStateCompat.STATE_PAUSED
+        }
+
+        mediaSession.setPlaybackState(
+            PlaybackStateCompat.Builder()
+                .setActions(
+                    PlaybackStateCompat.ACTION_PLAY
+                        or PlaybackStateCompat.ACTION_PAUSE
+                        or PlaybackStateCompat.ACTION_PLAY_PAUSE
+                        or PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                        or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                        or PlaybackStateCompat.ACTION_SEEK_TO
+                        or PlaybackStateCompat.ACTION_STOP
+                )
+                .setState(
+                    state,
+                    position.toLong(),
+                    if (isPlaying) 1.0f else 0.0f
+                )
+                .build()
+        )
+    }
+
+    private fun pendingAction(
+        requestCode: Int,
+        action: String
+    ): PendingIntent {
+        val flags =
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= 23)
+                    PendingIntent.FLAG_IMMUTABLE
+                else 0)
+
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            Intent(this, PlayerService::class.java)
+                .setAction(action),
+            flags
+        )
+    }
+
+    private fun goForeground() {
+        val track = currentTrack ?: return
+        mediaSession.isActive = true
+
+        val openIntent = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            flags
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= 23)
+                    PendingIntent.FLAG_IMMUTABLE
+                else 0)
         )
 
-        @Suppress("DEPRECATION")
-        val builder =
-            if (Build.VERSION.SDK_INT >= 26)
-                Notification.Builder(this, CHANNEL)
-            else
-                Notification.Builder(this)
-
-        val notification = builder
+        val notification = NotificationCompat.Builder(
+            this,
+            CHANNEL
+        )
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(t.title)
-            .setContentText(t.artist)
-            .setContentIntent(open)
+            .setContentTitle(track.title)
+            .setContentText(track.artist)
+            .setContentIntent(openIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setStyle(
+                MediaStyle()
+                    .setMediaSession(mediaSession.sessionToken)
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
+            .addAction(
+                NotificationCompat.Action(
+                    android.R.drawable.ic_media_previous,
+                    "Sebelumnya",
+                    pendingAction(11, ACTION_PREV)
+                )
+            )
+            .addAction(
+                NotificationCompat.Action(
+                    if (isPlaying)
+                        android.R.drawable.ic_media_pause
+                    else
+                        android.R.drawable.ic_media_play,
+                    if (isPlaying) "Jeda" else "Putar",
+                    pendingAction(10, ACTION_PLAY_PAUSE)
+                )
+            )
+            .addAction(
+                NotificationCompat.Action(
+                    android.R.drawable.ic_media_next,
+                    "Berikutnya",
+                    pendingAction(12, ACTION_NEXT)
+                )
+            )
             .build()
 
         try {
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(
-                    1,
+                    NOTIFICATION_ID,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
                 )
             } else {
-                startForeground(1, notification)
+                startForeground(NOTIFICATION_ID, notification)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
     }
 
@@ -316,10 +528,21 @@ class PlayerService : Service() {
         releaseEnhancer()
         player?.release()
         player = null
+        mediaSession.release()
         super.onDestroy()
     }
 
     companion object {
         private const val CHANNEL = "player"
+        private const val NOTIFICATION_ID = 1
+
+        const val ACTION_PLAY_PAUSE =
+            "com.musikH.lcgjukebos.PLAY_PAUSE"
+
+        const val ACTION_NEXT =
+            "com.musikH.lcgjukebos.NEXT"
+
+        const val ACTION_PREV =
+            "com.musikH.lcgjukebos.PREV"
     }
 }
