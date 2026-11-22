@@ -548,7 +548,7 @@ class MainActivity : Activity() {
 
     private fun confirmClear() {
         AlertDialog.Builder(this)
-            .setTitle("Hapus daftar lagu")
+            .setTitle("Hapus Daftar Lagu")
             .setMessage("Semua lagu di daftar beranda akan dihapus. File lagu di HP tidak ikut terhapus.")
             .setPositiveButton("Hapus") { _, _ -> clearList() }
             .setNegativeButton("Batal", null)
@@ -572,7 +572,7 @@ class MainActivity : Activity() {
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("Tentang")
-            .setMessage("Aplikasi ini hanya untuk hiburan pribadi tidak dijual belikan.\n\nVersi saat ini : V1.0\n\nby.Anonim 11/2026")
+            .setMessage("Aplikasi ini hanya untuk hiburan pribadi tidak dijual belikan.\n\nVersi saat ini : V2.0\n\nby.Anonim 11/2026")
             .setPositiveButton("OK", null)
             .show()
     }
@@ -598,13 +598,13 @@ class MainActivity : Activity() {
     }
 
     private fun refreshList() {
-        tvCount.text = "Daftar lagu (${tracks.size})"
+        tvCount.text = "Daftar Lagu (${tracks.size})"
         adapter.notifyDataSetChanged()
     }
 
     private fun showAddDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Tambah lagu / folder")
+            .setTitle("Tambah Lagu / Folder")
             .setItems(arrayOf("Pilih lagu (file)", "Pilih folder")) { _, which ->
                 if (which == 0) pickFiles() else pickFolder()
             }
